@@ -375,50 +375,12 @@ typedef struct vulkan_descriptor_set_config {
 } vulkan_descriptor_set_config;
 
 /**
- * @brief Represents a state for a given descriptor. This is used
- * to determine when a descriptor needs updating. There is a state
- * per frame (with a max of 3).
- */
-typedef struct vulkan_descriptor_state {
-    /** @brief The descriptor generation, per frame. */
-    u8 generations[3];
-    /** @brief The identifier, per frame. Typically used for texture ids. */
-    u32 ids[3];
-} vulkan_descriptor_state;
-
-typedef struct vulkan_uniform_sampler_state {
-    struct shader_uniform* uniform;
-
-    /**
-     * @brief Instance texture map pointers, which are used during rendering. These
-     * are set by calls to set_sampler.
-     */
-    struct texture_map** uniform_texture_maps;
-
-    /**
-     * @brief A descriptor state per descriptor, which in turn handles frames.
-     * Count is managed in shader config.
-     */
-    vulkan_descriptor_state* descriptor_states;
-} vulkan_uniform_sampler_state;
-/**
- * @brief The instance-level state for a shader.
+ * @brief The Vulkan-specific instance-level state for a shader.
  */
 typedef struct vulkan_shader_instance_state {
-    /** @brief The instance id. INVALID_ID if not used. */
-    u32 id;
-    /** @brief The offset in bytes in the instance uniform buffer. */
-    u64 offset;
-
     /** @brief The descriptor sets for this instance, one per frame. */
     // TODO: handle frame counts other than 3.
     VkDescriptorSet descriptor_sets[3];
-
-    // UBO descriptor
-    vulkan_descriptor_state ubo_descriptor_state;
-
-    // A mapping of sampler uniforms to descriptors and texture maps.
-    vulkan_uniform_sampler_state* sampler_uniforms;
 } vulkan_shader_instance_state;
 
 /**
@@ -427,11 +389,6 @@ typedef struct vulkan_shader_instance_state {
  * files to construct a shader for use in rendering.
  */
 typedef struct vulkan_shader {
-    /** @brief The block of memory mapped to the uniform buffer. */
-    void* mapped_uniform_buffer_block;
-    /** @brief The block of memory used for push constants, 128B. */
-    void* local_push_constant_block;
-
     /** @brief The shader identifier. */
     u32 id;
 
@@ -454,8 +411,6 @@ typedef struct vulkan_shader {
 
     /** @brief Face culling mode, provided by the front end. */
     face_cull_mode cull_mode;
-
-    u32 max_instances;
 
     /** @brief A pointer to the renderpass to be used with this shader. */
     vulkan_renderpass* renderpass;
@@ -480,15 +435,6 @@ typedef struct vulkan_shader {
     /** @brief Global descriptor sets, one per frame. */
     // TODO: handle frame counts other than 3.
     VkDescriptorSet global_descriptor_sets[3];
-
-    // UBO descriptor
-    vulkan_descriptor_state global_ubo_descriptor_state;
-
-    // A mapping of sampler uniforms to descriptors and texture maps.
-    vulkan_uniform_sampler_state* global_sampler_uniforms;
-
-    /** @brief The uniform buffer used by this shader. */
-    renderbuffer uniform_buffer;
 
     /** @brief An array of pointers to pipelines associated with this shader. */
     vulkan_pipeline** pipelines;

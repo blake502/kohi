@@ -558,7 +558,7 @@ material* material_system_acquire_terrain_material(const char* material_name, u3
         ibl_cube_texture->texture_maps[0] = &m->maps[SAMP_TERRAIN_IRRADIANCE_MAP];
 
         // Acquire the resources
-        b8 result = renderer_shader_instance_resources_acquire(selected_shader, &instance_resource_config, &m->internal_id);
+        b8 result = shader_system_instance_resources_acquire(selected_shader, &instance_resource_config, &m->internal_id);
         if (!result) {
             KERROR("Failed to acquire renderer resources for terrain material '%s'.", m->name);
         }
@@ -1181,7 +1181,7 @@ static b8 load_material(material_config* config, material* m) {
     }
 
     // Acquire the instance resources for this material.
-    b8 result = renderer_shader_instance_resources_acquire(selected_shader, &instance_resource_config, &m->internal_id);
+    b8 result = shader_system_instance_resources_acquire(selected_shader, &instance_resource_config, &m->internal_id);
     if (!result) {
         KERROR("Failed to acquire renderer resources for material '%s'.", m->name);
     }
@@ -1212,7 +1212,7 @@ static void destroy_material(material* m) {
 
     // Release renderer resources.
     if (m->shader_id != INVALID_ID && m->internal_id != INVALID_ID) {
-        renderer_shader_instance_resources_release(shader_system_get_by_id(m->shader_id), m->internal_id);
+        shader_system_instance_resources_release(shader_system_get_by_id(m->shader_id), m->internal_id);
         m->shader_id = INVALID_ID;
     }
 
@@ -1294,7 +1294,7 @@ static b8 create_default_pbr_material(material_system_state* state) {
     ibl_cube_texture->texture_maps[0] = &m->maps[SAMP_IRRADIANCE_MAP];
 
     shader* s = shader_system_get_by_id(state_ptr->pbr_shader_id);
-    if (!renderer_shader_instance_resources_acquire(s, &instance_resource_config, &state->default_pbr_material.internal_id)) {
+    if (!shader_system_instance_resources_acquire(s, &instance_resource_config, &state->default_pbr_material.internal_id)) {
         KFATAL("Failed to acquire renderer resources for default PBR material. Application cannot continue.");
         return false;
     }
@@ -1376,7 +1376,7 @@ static b8 create_default_terrain_material(material_system_state* state) {
 
     // Acquire the resources
     shader* s = shader_system_get_by_id(state_ptr->terrain_shader_id);
-    b8 result = renderer_shader_instance_resources_acquire(s, &instance_resource_config, &state->default_terrain_material.internal_id);
+    b8 result = shader_system_instance_resources_acquire(s, &instance_resource_config, &state->default_terrain_material.internal_id);
     if (!result) {
         KERROR("Failed to acquire renderer resources for default terrain material '%s'.");
     }

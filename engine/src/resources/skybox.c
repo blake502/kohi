@@ -65,7 +65,7 @@ b8 skybox_load(skybox* sb) {
 
     instance_resource_config.uniform_config_count = 1;
     instance_resource_config.uniform_configs = &colour_texture;
-    if (!renderer_shader_instance_resources_acquire(skybox_shader, &instance_resource_config, &sb->instance_id)) {
+    if (!shader_system_instance_resources_acquire(skybox_shader, &instance_resource_config, &sb->instance_id)) {
         KFATAL("Unable to acquire shader resources for skybox texture.");
         return false;
     }
@@ -80,7 +80,7 @@ b8 skybox_unload(skybox* sb) {
     }
 
     shader* skybox_shader = shader_system_get("Shader.Builtin.Skybox");  // TODO: allow configurable shader.
-    renderer_shader_instance_resources_release(skybox_shader, sb->instance_id);
+    shader_system_instance_resources_release(skybox_shader, sb->instance_id);
     sb->instance_id = INVALID_ID;
     renderer_texture_map_resources_release(&sb->cubemap);
 

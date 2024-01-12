@@ -249,7 +249,7 @@ b8 shadow_map_pass_load_resources(struct rendergraph_pass* self) {
 
         instance_resource_config.uniform_config_count = 1;
         instance_resource_config.uniform_configs = &colour_texture;
-        renderer_shader_instance_resources_acquire(internal_data->s, &instance_resource_config, &internal_data->default_instance_id);
+        shader_system_instance_resources_acquire(internal_data->s, &instance_resource_config, &internal_data->default_instance_id);
     }
 
     // Reserve an instance id for the default "material" to render to.
@@ -267,7 +267,7 @@ b8 shadow_map_pass_load_resources(struct rendergraph_pass* self) {
         instance_resource_config.uniform_config_count = 1;
         instance_resource_config.uniform_configs = &colour_texture;
 
-        renderer_shader_instance_resources_acquire(internal_data->ts, &instance_resource_config, &internal_data->terrain_instance_id);
+        shader_system_instance_resources_acquire(internal_data->ts, &instance_resource_config, &internal_data->terrain_instance_id);
     }
 
     // NOTE: Setup a default viewport. The only component that is used for this is the underlying
@@ -402,7 +402,7 @@ b8 shadow_map_pass_execute(struct rendergraph_pass* self, struct frame_data* p_f
 
                 instance_resource_config.uniform_config_count = 1;
                 instance_resource_config.uniform_configs = &colour_texture;
-                renderer_shader_instance_resources_acquire(internal_data->s, &instance_resource_config, &instance_id);
+                shader_system_instance_resources_acquire(internal_data->s, &instance_resource_config, &instance_id);
 
                 shadow_shader_instance_data* instance = &internal_data->instances[instance_id];
                 instance->render_frame_number = INVALID_ID_U64;
@@ -573,8 +573,8 @@ void shadow_map_pass_destroy(struct rendergraph_pass* self) {
 
             renderer_texture_map_resources_release(&internal_data->default_colour_map);
             renderer_texture_map_resources_release(&internal_data->default_terrain_colour_map);
-            renderer_shader_instance_resources_release(internal_data->s, internal_data->default_instance_id);
-            renderer_shader_instance_resources_release(internal_data->ts, internal_data->terrain_instance_id);
+            shader_system_instance_resources_release(internal_data->s, internal_data->default_instance_id);
+            shader_system_instance_resources_release(internal_data->ts, internal_data->terrain_instance_id);
 
             // Destroy the extended data.
             if (self->pass_data.ext_data) {

@@ -67,7 +67,7 @@ b8 sui_label_control_create(const char* name, font_type type, const char* font_n
     instance_resource_config.uniform_config_count = 1;
     instance_resource_config.uniform_configs = &atlas_texture;
 
-    if(!renderer_shader_instance_resources_acquire(s, &instance_resource_config, &typed_data->instance_id)) {
+    if (!shader_system_instance_resources_acquire(s, &instance_resource_config, &typed_data->instance_id)) {
         KFATAL("Unable to acquire shader resources for font texture map.");
         return false;
     }
@@ -144,7 +144,7 @@ void sui_label_control_unload(struct sui_control* self) {
     // Release resources for font texture map.
     if (typed_data->index_buffer_offset != INVALID_ID_U64) {
         shader* ui_shader = shader_system_get("Shader.StandardUI");  // TODO: text shader.
-        if (!renderer_shader_instance_resources_release(ui_shader, typed_data->instance_id)) {
+        if (!shader_system_instance_resources_release(ui_shader, typed_data->instance_id)) {
             KFATAL("Unable to release shader resources for font texture map.");
         }
         typed_data->index_buffer_offset = INVALID_ID_U64;

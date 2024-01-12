@@ -252,7 +252,7 @@ b8 sui_textbox_control_load(struct sui_control* self) {
     instance_resource_config.uniform_config_count = 1;
     instance_resource_config.uniform_configs = &atlas_texture;
 
-    if(!renderer_shader_instance_resources_acquire(s, &instance_resource_config, &typed_data->instance_id)) {
+    if (!shader_system_instance_resources_acquire(s, &instance_resource_config, &typed_data->instance_id)) {
         KFATAL("Unable to acquire shader resources for textbox texture map.");
         return false;
     }

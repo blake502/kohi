@@ -83,17 +83,17 @@ static void acquire_shader_instances(const struct render_view* self) {
     instance_resource_config.uniform_config_count = 0;  // NOTE: no textures, so this doesn't matter.
     instance_resource_config.uniform_configs = 0;
     // UI shader
-    if (!renderer_shader_instance_resources_acquire(data->ui_shader_info.s, &instance_resource_config, &instance)) {
+    if (!shader_system_instance_resources_acquire(data->ui_shader_info.s, &instance_resource_config, &instance)) {
         KFATAL("render_view_pick failed to acquire UI shader resources.");
         return;
     }
     // World shader
-    if (!renderer_shader_instance_resources_acquire(data->world_shader_info.s, &instance_resource_config, &instance)) {
+    if (!shader_system_instance_resources_acquire(data->world_shader_info.s, &instance_resource_config, &instance)) {
         KFATAL("render_view_pick failed to acquire World shader resources.");
         return;
     }
     // Terrain shader
-    if (!renderer_shader_instance_resources_acquire(data->terrain_shader_info.s, &instance_resource_config, &instance)) {
+    if (!shader_system_instance_resources_acquire(data->terrain_shader_info.s, &instance_resource_config, &instance)) {
         KFATAL("render_view_pick failed to acquire Terrain shader resources.");
         return;
     }
@@ -106,17 +106,17 @@ void release_shader_instances(const struct render_view* self) {
 
     for (i32 i = 0; i < data->instance_count; ++i) {
         // UI shader
-        if (!renderer_shader_instance_resources_release(data->ui_shader_info.s, i)) {
+        if (!shader_system_instance_resources_release(data->ui_shader_info.s, i)) {
             KWARN("Failed to release UI shader resources.");
         }
 
         // World shader
-        if (!renderer_shader_instance_resources_release(data->world_shader_info.s, i)) {
+        if (!shader_system_instance_resources_release(data->world_shader_info.s, i)) {
             KWARN("Failed to release world shader resources.");
         }
 
         // Terrain shader
-        if (!renderer_shader_instance_resources_release(data->terrain_shader_info.s, i)) {
+        if (!shader_system_instance_resources_release(data->terrain_shader_info.s, i)) {
             KWARN("Failed to release terrain shader resources.");
         }
     }

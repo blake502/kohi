@@ -536,9 +536,9 @@ b8 renderer_shader_apply_instance(shader* s, b8 needs_update, frame_data* p_fram
     return state_ptr->plugin.shader_apply_instance(&state_ptr->plugin, s, needs_update, p_frame_data);
 }
 
-b8 renderer_shader_instance_resources_acquire(struct shader* s, const shader_instance_resource_config* config, u32* out_instance_id) {
+b8 renderer_shader_instance_resources_acquire(struct shader* s, u32 instance_id) {
     renderer_system_state* state_ptr = (renderer_system_state*)systems_manager_get_state(K_SYSTEM_TYPE_RENDERER);
-    return state_ptr->plugin.shader_instance_resources_acquire(&state_ptr->plugin, s, config, out_instance_id);
+    return state_ptr->plugin.shader_instance_resources_acquire(&state_ptr->plugin, s, instance_id);
 }
 
 b8 renderer_shader_instance_resources_release(shader* s, u32 instance_id) {

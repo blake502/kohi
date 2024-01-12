@@ -107,14 +107,14 @@ b8 render_view_wireframe_on_registered(struct render_view* self) {
         instance_resource_config.uniform_config_count = 0;  // NOTE: no textures, so this doesn't matter.
         instance_resource_config.uniform_configs = 0;
 
-        if (!renderer_shader_instance_resources_acquire(info->s, &instance_resource_config, &info->normal_instance.id)) {
+        if (!shader_system_instance_resources_acquire(info->s, &instance_resource_config, &info->normal_instance.id)) {
             KERROR("Unable to acquire geometry shader instance resources from wireframe shader.");
             return false;
         }
 
         info->selected_instance = (wireframe_colour_instance){0};
         info->selected_instance.colour = vec4_create(0.0f, 1.0f, 0.0f, 1.0f);
-        if (!renderer_shader_instance_resources_acquire(info->s, &instance_resource_config, &info->selected_instance.id)) {
+        if (!shader_system_instance_resources_acquire(info->s, &instance_resource_config, &info->selected_instance.id)) {
             KERROR("Unable to acquire selected shader instance resources from wireframe shader.");
             return false;
         }
@@ -140,10 +140,10 @@ void render_view_wireframe_on_destroy(struct render_view* self) {
     event_unregister(EVENT_CODE_DEFAULT_RENDERTARGET_REFRESH_REQUIRED, self, render_view_on_event);
 
     // Release shader instance resources.
-    renderer_shader_instance_resources_release(internal_data->mesh_shader.s, internal_data->mesh_shader.normal_instance.id);
-    renderer_shader_instance_resources_release(internal_data->mesh_shader.s, internal_data->mesh_shader.selected_instance.id);
-    renderer_shader_instance_resources_release(internal_data->terrain_shader.s, internal_data->terrain_shader.normal_instance.id);
-    renderer_shader_instance_resources_release(internal_data->terrain_shader.s, internal_data->terrain_shader.selected_instance.id);
+    shader_system_instance_resources_release(internal_data->mesh_shader.s, internal_data->mesh_shader.normal_instance.id);
+    shader_system_instance_resources_release(internal_data->mesh_shader.s, internal_data->mesh_shader.selected_instance.id);
+    shader_system_instance_resources_release(internal_data->terrain_shader.s, internal_data->terrain_shader.normal_instance.id);
+    shader_system_instance_resources_release(internal_data->terrain_shader.s, internal_data->terrain_shader.selected_instance.id);
 
     // Free up the internal data structure.
     kfree(self->internal_data, sizeof(render_view_wireframe_internal_data), MEMORY_TAG_RENDERER);

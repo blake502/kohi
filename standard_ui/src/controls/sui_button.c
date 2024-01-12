@@ -100,7 +100,7 @@ b8 sui_button_control_load(struct sui_control* self) {
     instance_resource_config.uniform_config_count = 1;
     instance_resource_config.uniform_configs = &atlas_texture;
 
-    renderer_shader_instance_resources_acquire(s, &instance_resource_config, &typed_data->instance_id);
+    shader_system_instance_resources_acquire(s, &instance_resource_config, &typed_data->instance_id);
 
     return true;
 }

@@ -35,6 +35,8 @@ static b8 internal_uniform_add(shader* shader, const shader_uniform_config* conf
 static b8 uniform_name_valid(shader* shader, const char* uniform_name);
 static b8 shader_uniform_add_state_valid(shader* shader);
 static void internal_shader_destroy(shader* s);
+static b8 sampler_state_try_set(shader_uniform_sampler_state* sampler_uniforms, u32 sampler_count, u16 uniform_location, u32 array_index, texture_map* map);
+
 ///////////////////////
 
 b8 shader_system_initialize(u64* memory_requirement, void* memory, void* config) {
@@ -149,10 +151,18 @@ b8 shader_system_create(renderpass* pass, const shader_config* config) {
     // This is hard-coded because the Vulkan spec only guarantees that a _minimum_ 128 bytes of space are available,
     // and it's up to the driver to determine how much is available. Therefore, to avoid complexity, only the
     // lowest common denominator of 128B will be used.
+    // NOTE: This is used by the backend to setup the mapped_local_uniform_block.
     out_shader->local_ubo_stride = 128;
 
     // Take a copy of the flags.
     out_shader->flags = config->flags;
+    out_shader->max_instances = config->max_instances;
+
+    // Allocate and invalidate all instance states.
+    out_shader->instance_states = kallocate(sizeof(shader_instance_state) * out_shader->max_instances, MEMORY_TAG_ARRAY);
+    for (u32 i = 0; i < out_shader->max_instances; ++i) {
+        out_shader->instance_states[i].id = INVALID_ID;
+    }
 
     if (!renderer_shader_create(out_shader, config, pass)) {
         KERROR("Error creating shader.");
@@ -192,6 +202,33 @@ b8 shader_system_create(renderpass* pass, const shader_config* config) {
         KERROR("shader_system_create: initialization failed for shader '%s'.", config->name);
         // NOTE: initialize automatically destroys the shader if it fails.
         return false;
+    }
+
+    // Create the uniform buffer.
+    u64 total_buffer_size = out_shader->global_ubo_stride + (out_shader->ubo_stride * out_shader->max_instances);
+    char bufname[256];
+    kzero_memory(bufname, 256);
+    string_format(bufname, "renderbuffer_global_uniform");
+    if (!renderer_renderbuffer_create(bufname, RENDERBUFFER_TYPE_UNIFORM, total_buffer_size, RENDERBUFFER_TRACK_TYPE_FREELIST, &out_shader->uniform_buffer)) {
+        KERROR("Uniform buffer creation failed for object shader.");
+        return false;
+    }
+
+    // Initialize will have figured out required stride, alignment, etc. by now, so
+    // go ahead and bind and map the uniform buffer, then allocate space for the global UBO if
+    // need be.
+    renderer_renderbuffer_bind(&out_shader->uniform_buffer, 0);
+
+    // Map the entire buffer's memory.
+    out_shader->mapped_uniform_buffer_block = renderer_renderbuffer_map_memory(&out_shader->uniform_buffer, 0, -1);
+
+    //  Allocate space for the global UBO, whcih should occupy the _stride_ space,
+    //  _not_ the actual size used.
+    if (out_shader->global_ubo_size > 0 && out_shader->global_ubo_stride > 0) {
+        if (!renderer_renderbuffer_allocate(&out_shader->uniform_buffer, out_shader->global_ubo_stride, &out_shader->global_ubo_offset)) {
+            KERROR("Failed to allocate space for the uniform buffer!");
+            return false;
+        }
     }
 
     // At this point, creation is successful, so store the shader id in the hashtable
@@ -267,7 +304,14 @@ void shader_system_destroy(const char* shader_name) {
 
     shader* s = &state_ptr->shaders[shader_id];
 
+    // Release internal resources.
     internal_shader_destroy(s);
+
+    // Nuke the instance states.
+    kfree(s->instance_states, sizeof(shader_instance_state) * s->max_instances, MEMORY_TAG_ARRAY);
+
+    // Destroy uniform buffer.
+    renderer_renderbuffer_destroy(&s->uniform_buffer);
 }
 
 b8 shader_system_use(const char* shader_name) {
@@ -341,31 +385,83 @@ b8 shader_system_uniform_set_by_location(u16 location, const void* value) {
 }
 
 b8 shader_system_uniform_set_by_location_arrayed(u16 location, u32 array_index, const void* value) {
-    shader* shader = &state_ptr->shaders[state_ptr->current_shader_id];
-    shader_uniform* uniform = &shader->uniforms[location];
-    if (shader->bound_scope != uniform->scope) {
+    shader* s = &state_ptr->shaders[state_ptr->current_shader_id];
+    shader_uniform* uniform = &s->uniforms[location];
+
+    // Automatically bind scope if it's wrong.
+    if (s->bound_scope != uniform->scope) {
         if (uniform->scope == SHADER_SCOPE_GLOBAL) {
-            renderer_shader_bind_globals(shader);
+            renderer_shader_bind_globals(s);
         } else if (uniform->scope == SHADER_SCOPE_INSTANCE) {
-            renderer_shader_bind_instance(shader, shader->bound_instance_id);
+            renderer_shader_bind_instance(s, s->bound_instance_id);
         } else {
-            // NOTE: Nothing to do here for locals, just set the uniform.
+            renderer_shader_bind_local(s);
         }
-        shader->bound_scope = uniform->scope;
+        s->bound_scope = uniform->scope;
     }
-    return renderer_shader_uniform_set(shader, uniform, array_index, value);
+
+    shader_instance_state* instance_state = &s->instance_states[s->bound_instance_id];
+
+    b8 is_sampler = uniform_type_is_sampler(uniform->type);
+    if (is_sampler) {
+        texture_map* map = (texture_map*)value;
+        if (uniform->scope == SHADER_SCOPE_GLOBAL) {
+            return sampler_state_try_set(s->global_sampler_uniforms, s->global_uniform_sampler_count, uniform->location, array_index, map);
+        } else if (uniform->scope == SHADER_SCOPE_INSTANCE) {
+            return sampler_state_try_set(instance_state->sampler_uniforms, s->instance_uniform_sampler_count, uniform->location, array_index, map);
+        } else {
+            KERROR("Samplers may not be bound at the local level.");
+            return false;
+        }
+    } else {
+        // Obtain the address of the appropriate buffer, and the position within it.
+        u64 addr;
+        if (uniform->scope == SHADER_SCOPE_LOCAL) {
+            addr = (u64)s->mapped_local_uniform_block;
+            addr += uniform->offset + (uniform->size * array_index);
+        } else {
+            addr = (u64)s->mapped_uniform_buffer_block;
+            addr += s->bound_ubo_offset + uniform->offset + (uniform->size * array_index);
+        }
+
+        // Copy the data over.
+        kcopy_memory((void*)addr, value, uniform->size);
+    }
+
+    // Handle anything required in the renderer backend.
+    return renderer_shader_uniform_set(s, uniform, array_index, value);
 }
 
 b8 shader_system_apply_global(b8 needs_update, frame_data* p_frame_data) {
     return renderer_shader_apply_globals(&state_ptr->shaders[state_ptr->current_shader_id], needs_update, p_frame_data);
 }
+
+b8 shader_system_bind_global(void) {
+    shader* s = &state_ptr->shaders[state_ptr->current_shader_id];
+    s->bound_scope = SHADER_SCOPE_GLOBAL;
+    s->bound_instance_id = INVALID_ID;
+    s->bound_ubo_offset = s->global_ubo_offset;
+    return renderer_shader_bind_globals(s);
+}
+
 b8 shader_system_apply_instance(b8 needs_update, frame_data* p_frame_data) {
     return renderer_shader_apply_instance(&state_ptr->shaders[state_ptr->current_shader_id], needs_update, p_frame_data);
 }
 
 b8 shader_system_bind_instance(u32 instance_id) {
+    if (instance_id == INVALID_ID) {
+        KERROR("Cannot bind instance INVALID_ID.");
+        return false;
+    }
+
+    // Set bind scope and bound instance id.
     shader* s = &state_ptr->shaders[state_ptr->current_shader_id];
+    s->bound_scope = SHADER_SCOPE_INSTANCE;
     s->bound_instance_id = instance_id;
+
+    // Set the bound ubo offset.
+    shader_instance_state* instance_state = &s->instance_states[instance_id];
+    s->bound_ubo_offset = instance_state->offset;
     return renderer_shader_bind_instance(s, instance_id);
 }
 
@@ -376,7 +472,155 @@ b8 shader_system_apply_local(struct frame_data* p_frame_data) {
 
 b8 shader_system_bind_local(void) {
     shader* s = &state_ptr->shaders[state_ptr->current_shader_id];
+    s->bound_scope = SHADER_SCOPE_LOCAL;
+    s->bound_instance_id = INVALID_ID;
     return renderer_shader_bind_local(s);
+}
+
+b8 shader_system_instance_resources_acquire(shader* s, const shader_instance_resource_config* config, u32* out_instance_id) {
+    if (!s) {
+        KERROR("shader_system_instance_resources_acquire requires a valid pointer to a shader.");
+        return false;
+    }
+    if (!config) {
+        KERROR("shader_system_instance_resources_acquire requires a valid pointer to a configuration.");
+        return false;
+    }
+    if (!out_instance_id) {
+        KERROR("shader_system_instance_resources_acquire requires a valid pointer to hold a new instance id.");
+        return false;
+    }
+
+    u32 instance_id = INVALID_ID;
+    for (u32 i = 0; i < s->max_instances; ++i) {
+        if (s->instance_states[i].id == INVALID_ID) {
+            s->instance_states[i].id = i;
+            instance_id = i;
+            break;
+        }
+    }
+    if (instance_id == INVALID_ID) {
+        KERROR("shader_system_acquire_instance_resources failed to acquire new id for shader '%s', max instances=%u", s->name, s->max_instances);
+        return false;
+    }
+
+    texture* default_texture = texture_system_get_default_texture();
+
+    // Map texture maps in the config to the correct uniforms
+    shader_instance_state* instance_state = &s->instance_states[instance_id];
+    // Only setup if the shader actually requires it.
+    if (s->instance_texture_count > 0) {
+        instance_state->sampler_uniforms = kallocate(sizeof(shader_uniform_sampler_state) * s->instance_uniform_sampler_count, MEMORY_TAG_ARRAY);
+
+        // Assign uniforms to each of the sampler states.
+        for (u32 ii = 0; ii < s->instance_uniform_sampler_count; ++ii) {
+            shader_uniform_sampler_state* sampler_state = &instance_state->sampler_uniforms[ii];
+            sampler_state->uniform = &s->uniforms[s->instance_sampler_indices[ii]];
+
+            // Grab the uniform texture config as well.
+            shader_instance_uniform_texture_config* tc = &config->uniform_configs[ii];
+
+            u32 array_length = KMAX(sampler_state->uniform->array_length, 1);
+            // Setup the array for the sampler texture maps.
+            sampler_state->uniform_texture_maps = kallocate(sizeof(texture_map*) * array_length, MEMORY_TAG_ARRAY);
+            // Setup descriptor states
+            sampler_state->descriptor_states = kallocate(sizeof(shader_descriptor_state) * array_length, MEMORY_TAG_ARRAY);
+            // Per descriptor
+            for (u32 d = 0; d < array_length; ++d) {
+                sampler_state->uniform_texture_maps[d] = tc->texture_maps[d];
+                // Make sure it has a texture map assigned. Use default if not.
+                if (!sampler_state->uniform_texture_maps[d]->texture) {
+                    sampler_state->uniform_texture_maps[d]->texture = default_texture;
+                }
+                // Per frame
+                // TODO: handle different frame counts.
+                for (u32 j = 0; j < 3; ++j) {
+                    sampler_state->descriptor_states[d].generations[j] = INVALID_ID_U8;
+                    sampler_state->descriptor_states[d].ids[j] = INVALID_ID;
+                }
+            }
+        }
+    }
+
+    // Allocate some space in the UBO - by the stride, not the size.
+    u64 size = s->ubo_stride;
+    if (size > 0) {
+        if (!renderer_renderbuffer_allocate(&s->uniform_buffer, size, &instance_state->offset)) {
+            KERROR("vulkan_material_shader_acquire_resources failed to acquire ubo space");
+            return false;
+        }
+    }
+
+    // UBO binding. NOTE: really only matters where there are instance uniforms, but set them anyway.
+    // TODO: Handle different frame counts.
+    for (u32 j = 0; j < 3; ++j) {
+        instance_state->ubo_descriptor_state.generations[j] = INVALID_ID_U8;
+        instance_state->ubo_descriptor_state.ids[j] = INVALID_ID_U8;
+    }
+
+    *out_instance_id = instance_id;
+
+    // Do the renderer-specific things.
+    return renderer_shader_instance_resources_acquire(s, instance_id);
+}
+
+b8 shader_system_instance_resources_release(shader* s, u32 instance_id) {
+    if (!s) {
+        KERROR("shader_system_instance_resources_release requires a valid pointer to a shader.");
+        return false;
+    }
+    if (instance_id == INVALID_ID) {
+        KERROR("shader_system_instance_resources_releases cannot have an instance id of INVALID_ID.");
+        return false;
+    }
+    shader_instance_state* instance_state = &s->instance_states[instance_id];
+    // Invalidate UBO descriptor state.
+    for (u32 j = 0; j < 3; ++j) {
+        instance_state->ubo_descriptor_state.generations[j] = INVALID_ID_U8;
+        instance_state->ubo_descriptor_state.ids[j] = INVALID_ID_U8;
+    }
+
+    // Destroy bindings and their descriptor states/uniforms.
+    for (u32 a = 0; a < s->instance_uniform_sampler_count; ++a) {
+        shader_uniform_sampler_state* sampler_state = &instance_state->sampler_uniforms[a];
+        u32 array_length = KMAX(sampler_state->uniform->array_length, 1);
+        kfree(sampler_state->descriptor_states, sizeof(shader_descriptor_state) * array_length, MEMORY_TAG_ARRAY);
+        sampler_state->descriptor_states = 0;
+        kfree(sampler_state->uniform_texture_maps, sizeof(texture_map*) * array_length, MEMORY_TAG_ARRAY);
+        sampler_state->uniform_texture_maps = 0;
+    }
+
+    if (s->ubo_stride != 0) {
+        if (!renderer_renderbuffer_free(&s->uniform_buffer, s->ubo_stride, instance_state->offset)) {
+            KERROR("vulkan_renderer_shader_release_instance_resources failed to free range from renderbuffer.");
+        }
+    }
+    instance_state->offset = INVALID_ID;
+    instance_state->id = INVALID_ID;
+
+    // Do the renderer-specific things.
+    return renderer_shader_instance_resources_release(s, instance_id);
+}
+
+static b8 sampler_state_try_set(shader_uniform_sampler_state* sampler_uniforms, u32 sampler_count, u16 uniform_location, u32 array_index, texture_map* map) {
+    // Find the sampler uniform state to update.
+    for (u32 i = 0; i < sampler_count; ++i) {
+        shader_uniform_sampler_state* su = &sampler_uniforms[i];
+        if (su->uniform->location == uniform_location) {
+            if (su->uniform->array_length > 1) {
+                if (array_index >= su->uniform->array_length) {
+                    KERROR("uniform_set error: array_index (%u) is out of range (0-%u)", array_index, su->uniform->array_length);
+                    return false;
+                }
+                su->uniform_texture_maps[array_index] = map;
+            } else {
+                su->uniform_texture_maps[0] = map;
+            }
+            return true;
+        }
+    }
+    KERROR("sampler_state_try_set: Unable to find uniform location %u. Sampler uniform not set.", uniform_location);
+    return false;
 }
 
 static b8 internal_attribute_add(shader* shader, const shader_attribute_config* config) {

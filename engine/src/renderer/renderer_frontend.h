@@ -376,14 +376,13 @@ KAPI b8 renderer_shader_apply_globals(struct shader* s, b8 needs_update, frame_d
 KAPI b8 renderer_shader_apply_instance(struct shader* s, b8 needs_update, frame_data* p_frame_data);
 
 /**
- * @brief Acquires internal instance-level resources and provides an instance id.
+ * @brief Acquires internal instance-level resources for the provided instance id.
  *
  * @param s A pointer to the shader to acquire resources from.
- * @param config A constant pointer to the configuration of the instance to be used while acquiring resources.
- * @param out_instance_id A pointer to hold the new instance identifier.
+ * @param instance_id The instance identifier.
  * @return True on success; otherwise false.
  */
-KAPI b8 renderer_shader_instance_resources_acquire(struct shader* s, const shader_instance_resource_config* config, u32* out_instance_id);
+KAPI b8 renderer_shader_instance_resources_acquire(struct shader* s, u32 instance_id);
 
 /**
  * @brief Releases internal instance-level resources for the given instance id.

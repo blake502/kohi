@@ -655,16 +655,14 @@ typedef struct renderer_plugin {
     b8 (*shader_apply_instance)(struct renderer_plugin* plugin, struct shader* s, b8 needs_update, struct frame_data* p_frame_data);
 
     /**
-     * @brief Acquires internal instance-level resources and provides an instance id.
+     * @brief Acquires internal instance-level resources for the provided instance id.
      *
      * @param plugin A pointer to the renderer plugin interface.
      * @param s A pointer to the shader to acquire resources from.
-     * @param texture_map_count The number of texture maps used.
-     * @param maps An array of pointers to texture maps. Must be one map per instance texture.
-     * @param out_instance_id A pointer to hold the new instance identifier.
+     * @param out_instance_id The instance identifier.
      * @return True on success; otherwise false.
      */
-    b8 (*shader_instance_resources_acquire)(struct renderer_plugin* plugin, struct shader* s, const shader_instance_resource_config* config, u32* out_instance_id);
+    b8 (*shader_instance_resources_acquire)(struct renderer_plugin* plugin, struct shader* s, u32 instance_id);
 
     /**
      * @brief Releases internal instance-level resources for the given instance id.

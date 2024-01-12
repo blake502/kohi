@@ -759,7 +759,7 @@ b8 application_update(struct application* game_inst, struct frame_data* p_frame_
                 KCLAMP(ksin(p_frame_data->total_time - (K_2PI / 3)) * 75.0f + 50.0f, 0.0f, 100.0f),
                 KCLAMP(ksin(p_frame_data->total_time - (K_4PI / 3)) * 75.0f + 50.0f, 0.0f, 100.0f),
                 1.0f};
-            state->p_light_1->data.position.z = 20.0f + ksin(p_frame_data->total_time);
+            state->p_light_1->data.position.z = 15.0f + ksin(p_frame_data->total_time);
 
             // Make the audio emitter follow it.
             state->test_emitter.position = vec3_from_vec4(state->p_light_1->data.position);

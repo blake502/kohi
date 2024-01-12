@@ -93,6 +93,53 @@ typedef enum shader_flags {
 typedef u32 shader_flag_bits;
 
 /**
+ * @brief Represents a state for a given descriptor. This is used
+ * to determine when a descriptor needs updating. There is a state
+ * per frame (typically with a max of 3).
+ */
+typedef struct shader_descriptor_state {
+    /** @brief The descriptor generation, per frame. */
+    u8 generations[3];  // TODO: Handle frame counts other than 3.
+    /** @brief The identifier, per frame. Typically used for texture ids. */
+    u32 ids[3];
+} shader_descriptor_state;
+
+/**
+ * The state of an individual sampler uniform in a shader.
+ */
+typedef struct shader_uniform_sampler_state {
+    struct shader_uniform* uniform;
+
+    /**
+     * @brief Instance texture map pointers, which are used during rendering. These
+     * are set by calls to set_sampler.
+     */
+    struct texture_map** uniform_texture_maps;
+
+    /**
+     * @brief A descriptor state per descriptor, which in turn handles frames.
+     * Count is managed in shader config.
+     */
+    shader_descriptor_state* descriptor_states;
+} shader_uniform_sampler_state;
+
+/**
+ * @brief The instance-level state for a shader.
+ */
+typedef struct shader_instance_state {
+    /** @brief The instance id. INVALID_ID if not used. */
+    u32 id;
+    /** @brief The offset in bytes in the instance uniform buffer. */
+    u64 offset;
+
+    // UBO descriptor
+    shader_descriptor_state ubo_descriptor_state;
+
+    // A mapping of sampler uniforms to descriptors and texture maps.
+    shader_uniform_sampler_state* sampler_uniforms;
+} shader_instance_state;
+
+/**
  * @brief Represents a shader on the frontend.
  */
 typedef struct shader {
@@ -136,8 +183,24 @@ typedef struct shader {
     u64 local_ubo_size;
     u64 local_ubo_stride;
 
+    /** @brief The uniform buffer used by this shader for global and instance uniforms. */
+    renderbuffer uniform_buffer;
+
+    /** @brief The block of memory mapped to the uniform buffer. */
+    void* mapped_uniform_buffer_block;
+    /**
+     * @brief The block of memory used for local uniforms.
+     * NOTE: This should be allocated by the backend since the use of this varies.
+     */
+    void* mapped_local_uniform_block;
+
     /** @brief An array of global texture map pointers. Darray */
     texture_map** global_texture_maps;
+
+    // UBO descriptor
+    shader_descriptor_state global_ubo_descriptor_state;
+    // A mapping of sampler uniforms to descriptors and texture maps.
+    shader_uniform_sampler_state* global_sampler_uniforms;
 
     /** @brief The number of instance textures. */
     u8 instance_texture_count;
@@ -188,6 +251,11 @@ typedef struct shader {
 
     u8 shader_stage_count;
     shader_stage_config* stage_configs;
+
+    /** @brief The maximum number of instances supported by this shader. */
+    u32 max_instances;
+    /** @brief The instance states for all instances. */
+    shader_instance_state* instance_states;
 
     /** @brief An opaque pointer to hold renderer API specific data. Renderer is responsible for creation and destruction of this.  */
     void* internal_data;
@@ -364,6 +432,15 @@ KAPI b8 shader_system_sampler_set_by_location_arrayed(u16 location, u32 array_in
 KAPI b8 shader_system_apply_global(b8 needs_update, struct frame_data* p_frame_data);
 
 /**
+ * @brief Binds the global shader scope for use. Must be done before setting
+ * global-scoped uniforms.
+ * NOTE: Operates against the currently-used shader.
+ *
+ * @return True on success; otherwise false.
+ */
+KAPI b8 shader_system_bind_global(void);
+
+/**
  * @brief Applies instance-scoped uniforms.
  * NOTE: Operates against the currently-used shader.
  * @param needs_update Indicates if the shader needs uniform updates or just needs to be bound.
@@ -399,3 +476,22 @@ KAPI b8 shader_system_apply_local(struct frame_data* p_frame_data);
  * @return True on success; otherwise false.
  */
 KAPI b8 shader_system_bind_local(void);
+
+/**
+ * @brief Acquires internal instance-level resources and generates a new instance id.
+ *
+ * @param s A pointer to the shader to acquire resources from.
+ * @param out_instance_id A pointer to hold the new instance identifier.
+ * @param config A constant pointer to the configuration to be used for thre resource acquisition.
+ * @return True on success; otherwise false.
+ */
+KAPI b8 shader_system_instance_resources_acquire(shader* s, const shader_instance_resource_config* config, u32* out_instance_id);
+
+/**
+ * @brief Releases internal instance-level resources for the given instance id.
+ *
+ * @param s A pointer to the shader to release resources from.
+ * @param instance_id The instance identifier whose resources are to be released.
+ * @return True on success; otherwise false.
+ */
+KAPI b8 shader_system_instance_resources_release(shader* s, u32 instance_id);
