@@ -690,6 +690,7 @@ b8 material_system_apply_global(u32 shader_id, struct frame_data* p_frame_data, 
         return true;
     }
 
+    shader_system_bind_global();
     if (shader_id == state_ptr->terrain_shader_id) {
         MATERIAL_APPLY_OR_FAIL(shader_system_uniform_set_by_location(state_ptr->terrain_locations.projection, projection));
         MATERIAL_APPLY_OR_FAIL(shader_system_uniform_set_by_location(state_ptr->terrain_locations.view, view));

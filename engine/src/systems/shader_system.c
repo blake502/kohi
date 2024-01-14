@@ -288,6 +288,9 @@ static void internal_shader_destroy(shader* s) {
     }
     darray_destroy(s->global_texture_maps);
 
+    // Destroy uniform buffer.
+    renderer_renderbuffer_destroy(&s->uniform_buffer);
+
     // Free the name.
     if (s->name) {
         u32 length = string_length(s->name);
@@ -309,9 +312,6 @@ void shader_system_destroy(const char* shader_name) {
 
     // Nuke the instance states.
     kfree(s->instance_states, sizeof(shader_instance_state) * s->max_instances, MEMORY_TAG_ARRAY);
-
-    // Destroy uniform buffer.
-    renderer_renderbuffer_destroy(&s->uniform_buffer);
 }
 
 b8 shader_system_use(const char* shader_name) {
