@@ -869,6 +869,57 @@ b8 vulkan_renderer_end(renderer_plugin *plugin, struct frame_data *p_frame_data)
     return true;
 }
 
+b8 vulkan_renderer_finalize_preframe_work(renderer_plugin *plugin, struct frame_data *p_frame_data) {
+    vulkan_context *context = (vulkan_context *)plugin->internal_context;
+    vulkan_command_buffer *command_buffer = &context->graphics_command_buffers[context->image_index];
+
+    // HACK: These should be obtained some other way, or passed through?
+    // renderbuffer *vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
+    // renderbuffer *index_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_INDEX);
+
+    // Insert pipeline barrier to wait on transfer operations
+    /*
+    VkBufferMemoryBarrier vertex_buffer_barrier = {};
+    vertex_buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    vertex_buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;         // Wait for transfer write access
+    vertex_buffer_barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;  // Make data visible to shaders
+    vertex_buffer_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vertex_buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    vertex_buffer_barrier.buffer = ((vulkan_buffer *)vertex_buffer->internal_data)->handle;
+    vertex_buffer_barrier.offset = 0;
+    vertex_buffer_barrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, 0, 1, &vertex_buffer_barrier, 0, 0);
+    */
+
+    VkMemoryBarrier vertex_buffer_barrier = {0};
+    vertex_buffer_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    vertex_buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vertex_buffer_barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+    vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &vertex_buffer_barrier, 0, 0, 0, 0);
+
+    // Insert pipeline barrier to wait on transfer operations
+    /*
+    VkBufferMemoryBarrier index_buffer_barrier = {};
+    index_buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    index_buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;         // Wait for transfer write access
+    index_buffer_barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;  // Make data visible to shaders
+    index_buffer_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    index_buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    index_buffer_barrier.buffer = ((vulkan_buffer *)index_buffer->internal_data)->handle;
+    index_buffer_barrier.offset = 0;
+    index_buffer_barrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, 0, 1, &index_buffer_barrier, 0, 0);
+    */
+
+    VkMemoryBarrier index_buffer_barrier = {};
+    index_buffer_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    index_buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;         // Wait for transfer write access
+    index_buffer_barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;  // Make data visible to shaders
+    vkCmdPipelineBarrier(command_buffer->handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &index_buffer_barrier, 0, 0, 0, 0);
+
+    return true;
+}
+
 b8 vulkan_renderer_present(renderer_plugin *plugin, struct frame_data *p_frame_data) {
     // Cold-cast the context
     vulkan_context *context = (vulkan_context *)plugin->internal_context;

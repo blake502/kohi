@@ -29,6 +29,7 @@ void vulkan_renderer_end_debug_label(renderer_plugin* plugin);
 b8 vulkan_renderer_frame_prepare(renderer_plugin* backend, struct frame_data* p_frame_data);
 b8 vulkan_renderer_begin(renderer_plugin* plugin, struct frame_data* p_frame_data);
 b8 vulkan_renderer_end(renderer_plugin* plugin, struct frame_data* p_frame_data);
+b8 vulkan_renderer_finalize_preframe_work(renderer_plugin* plugin, struct frame_data* p_frame_data);
 b8 vulkan_renderer_present(renderer_plugin* backend, struct frame_data* p_frame_data);
 void vulkan_renderer_viewport_set(renderer_plugin* backend, vec4 rect);
 void vulkan_renderer_viewport_reset(renderer_plugin* backend);

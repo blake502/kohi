@@ -14,6 +14,7 @@ b8 plugin_create(renderer_plugin* out_plugin) {
     out_plugin->frame_prepare = vulkan_renderer_frame_prepare;
     out_plugin->begin = vulkan_renderer_begin;
     out_plugin->end = vulkan_renderer_end;
+    out_plugin->finalize_preframe_work = vulkan_renderer_finalize_preframe_work;
     out_plugin->present = vulkan_renderer_present;
     out_plugin->viewport_set = vulkan_renderer_viewport_set;
     out_plugin->viewport_reset = vulkan_renderer_viewport_reset;

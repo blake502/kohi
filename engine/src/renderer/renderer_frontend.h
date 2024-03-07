@@ -94,6 +94,8 @@ KAPI b8 renderer_begin(struct frame_data* p_frame_data);
  */
 KAPI b8 renderer_end(struct frame_data* p_frame_data);
 
+KAPI b8 renderer_finalize_preframe_work(struct frame_data* p_frame_data);
+
 /**
  * @brief Performs routines required to draw a frame, such as presentation. Should only be called
  * after a successful return of begin_frame.

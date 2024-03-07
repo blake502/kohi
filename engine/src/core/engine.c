@@ -2,10 +2,10 @@
 
 #include "application_types.h"
 #include "containers/darray.h"
-#include "core/kclock.h"
 #include "core/event.h"
 #include "core/frame_data.h"
 #include "core/input.h"
+#include "core/kclock.h"
 #include "core/kmemory.h"
 #include "core/kstring.h"
 #include "core/logger.h"
@@ -237,6 +237,10 @@ b8 engine_run(application* game_inst) {
 
             // Have the application generate the render packet.
             b8 prepare_result = engine_state->game_inst->prepare_frame(engine_state->game_inst, &engine_state->p_frame_data);
+
+            if (!renderer_finalize_preframe_work(&engine_state->p_frame_data)) {
+                KERROR("Error finalizing preframe work. See logs for details.");
+            }
             // End "prepare_frame" render event grouping.
             renderer_end_debug_label();
 

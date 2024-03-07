@@ -380,6 +380,8 @@ typedef struct renderer_plugin {
      */
     b8 (*end)(struct renderer_plugin* plugin, struct frame_data* p_frame_data);
 
+    b8 (*finalize_preframe_work)(struct renderer_plugin* plugin, struct frame_data* p_frame_data);
+
     /**
      * @brief Performs routines required to draw a frame, such as presentation. Should only be called
      * after a successful return of begin_frame.

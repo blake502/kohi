@@ -180,6 +180,11 @@ b8 renderer_end(struct frame_data* p_frame_data) {
     return result;
 }
 
+b8 renderer_finalize_preframe_work(struct frame_data* p_frame_data) {
+    renderer_system_state* state_ptr = (renderer_system_state*)systems_manager_get_state(K_SYSTEM_TYPE_RENDERER);
+    return state_ptr->plugin.finalize_preframe_work(&state_ptr->plugin, p_frame_data);
+}
+
 b8 renderer_present(struct frame_data* p_frame_data) {
     renderer_system_state* state_ptr = (renderer_system_state*)systems_manager_get_state(K_SYSTEM_TYPE_RENDERER);
 
