@@ -125,7 +125,18 @@
         "stdlib.h": "c",
         "filesystem": "c",
         "chrono": "c",
-        "codecvt": "c"
+        "codecvt": "c",
+        "array": "c",
+        "bitset": "c",
+        "deque": "c",
+        "list": "c",
+        "queue": "c",
+        "xhash": "c",
+        "xtree": "c",
+        "format": "c",
+        "regex": "c",
+        "span": "c",
+        "valarray": "c"
     },
     // File copyright documentation tag.  Array of strings will be converted to one line per element.  Can template {year}.
     "doxdocgen.file.copyrightTag": [

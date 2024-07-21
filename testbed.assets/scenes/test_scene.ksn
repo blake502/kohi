@@ -43,6 +43,32 @@ nodes = [
         ]
     }
     {
+        name = "sponza2"
+        xform = "1.480885 4.243200 15.837330 0.000000 0.000000 0.000000 1.000000 0.010000 0.010000 0.010000"
+        attachments = [
+            {
+                type = "static_mesh"
+                resource_name = "sponza"
+            }
+        ]
+        children = [
+            
+        ]
+    }
+    {
+        name = "sponza3"
+        xform = "-1.480885 -14.243200 -25.837330 0.000000 0.000000 0.000000 1.000000 0.010000 0.010000 0.010000"
+        attachments = [
+            {
+                type = "static_mesh"
+                resource_name = "sponza"
+            }
+        ]
+        children = [
+            
+        ]
+    }
+    {
         name = "simple_hut"
         xform = "3.244813 0.611967 17.673908 0.000000 0.883185 0.000000 -0.469032 0.697788 0.697788 0.697788"
         attachments = [
