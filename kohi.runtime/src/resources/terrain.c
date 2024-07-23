@@ -228,6 +228,8 @@ b8 terrain_chunk_load(terrain* t, terrain_chunk* chunk) {
     // NOTE: Instead of using geometry here, which essentially wraps a single set of vertex and index data,
     // these will be handled manually here for terrains.
 
+    // TODO: use renderer_renderbuffer_upload instead of all of this.
+
     // Upload vertex data.
     renderbuffer* vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
     u64 total_vertex_size = sizeof(terrain_vertex) * chunk->total_vertex_count;

@@ -58,9 +58,9 @@ b8 sui_label_control_create(standard_ui_state* state, const char* name, font_typ
     }
 
     typed_data->vertex_buffer_offset = INVALID_ID_U64;
-    typed_data->vertex_buffer_size = INVALID_ID_U64;
+    typed_data->vertex_buffer_size = 0;
     typed_data->index_buffer_offset = INVALID_ID_U64;
-    typed_data->index_buffer_size = INVALID_ID_U64;
+    typed_data->index_buffer_size = 0;
 
     // Default quad count is 0 until the first geometry regeneration happens.
     typed_data->quad_count = 0;
@@ -259,7 +259,7 @@ static font_kerning* kerning_from_codepoints(font_data* font, i32 codepoint_0, i
     return 0;
 }
 
-static b8 regenerate_label_geometry(const sui_control* self, sui_label_pending_data* pending_data) {
+static b8 regenerate_label_geometry(const sui_control* self, sui_label_pending_data* pending_data, const struct frame_data* p_frame_data) {
     sui_label_internal_data* typed_data = self->internal_data;
 
     // Get the UTF-8 string length
@@ -274,7 +274,7 @@ static b8 regenerate_label_geometry(const sui_control* self, sui_label_pending_d
     if (text_length_utf8 < 1) {
         return true;
     }
-    i32* codepoints = kallocate(sizeof(i32) * text_length_utf8, MEMORY_TAG_ARRAY);
+    i32* codepoints = p_frame_data->allocator.allocate(sizeof(i32) * text_length_utf8);
     for (u32 c = 0, cp_idx = 0; c < char_length;) {
         i32 codepoint = typed_data->text[c];
         u8 advance = 1;
@@ -305,8 +305,8 @@ static b8 regenerate_label_geometry(const sui_control* self, sui_label_pending_d
     pending_data->vertex_buffer_size = sizeof(vertex_2d) * verts_per_quad * pending_data->quad_count;
     pending_data->index_buffer_size = sizeof(u32) * indices_per_quad * pending_data->quad_count;
     // Temp arrays to hold vertex/index data.
-    pending_data->vertex_buffer_data = kallocate(pending_data->vertex_buffer_size, MEMORY_TAG_ARRAY);
-    pending_data->index_buffer_data = kallocate(pending_data->index_buffer_size, MEMORY_TAG_ARRAY);
+    pending_data->vertex_buffer_data = p_frame_data->allocator.allocate(pending_data->vertex_buffer_size);
+    pending_data->index_buffer_data = p_frame_data->allocator.allocate(pending_data->index_buffer_size);
 
     // Generate new geometry for each character.
     f32 x = 0;
@@ -392,11 +392,6 @@ static b8 regenerate_label_geometry(const sui_control* self, sui_label_pending_d
         x += g->x_advance + kerning_amount;
     }
 
-    // Clean up.
-    if (codepoints) {
-        kfree(codepoints, sizeof(i32) * text_length_utf8, MEMORY_TAG_ARRAY);
-    }
-
     return true;
 }
 
@@ -408,85 +403,103 @@ static void sui_label_control_render_frame_prepare(standard_ui_state* state, str
             if (!font_system_verify_atlas(typed_data->data, typed_data->text)) {
                 KERROR("Font atlas verification failed.");
                 typed_data->quad_count = 0; // Keep it from drawing.
-                goto sui_label_frame_prepare_cleanup;
+                return;
             }
 
             sui_label_pending_data pending_data = {0};
-            if (!regenerate_label_geometry(self, &pending_data)) {
+            if (!regenerate_label_geometry(self, &pending_data, p_frame_data)) {
                 KERROR("Error regenerating label geometry.");
                 typed_data->quad_count = 0; // Keep it from drawing.
-                goto sui_label_frame_prepare_cleanup;
+                return;
+            }
+
+            // Can stop here if there's nothing to upload.
+            if (pending_data.quad_count == 0) {
+                return;
             }
 
             renderbuffer* vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
             renderbuffer* index_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_INDEX);
 
+            // Always reupload vertex and index data
             u64 old_vertex_size = typed_data->vertex_buffer_size;
-            u64 old_vertex_offset = typed_data->vertex_buffer_offset;
-            u64 old_index_size = typed_data->index_buffer_size;
-            u64 old_index_offset = typed_data->index_buffer_offset;
-
-            // Use the new offsets unless a realloc is needed.
             u64 new_vertex_size = pending_data.vertex_buffer_size;
-            u64 new_vertex_offset = old_vertex_offset;
-            u64 new_index_size = pending_data.index_buffer_size;
-            u64 new_index_offset = old_index_offset;
-
-            // A reallocation is required if the text is longer than it previously was.
-            b8 needs_realloc = pending_data.quad_count > typed_data->max_quad_count;
-            if (needs_realloc) {
-                if (!renderer_renderbuffer_allocate(vertex_buffer, new_vertex_size, &pending_data.vertex_buffer_offset)) {
-                    KERROR(
-                        "sui_label_control_render_frame_prepare failed to allocate from the renderer's vertex buffer: size=%u, offset=%u",
-                        new_vertex_size,
-                        pending_data.vertex_buffer_offset);
-                    typed_data->quad_count = 0; // Keep it from drawing.
-                    goto sui_label_frame_prepare_cleanup;
-                }
-                new_vertex_offset = pending_data.vertex_buffer_offset;
-
-                if (!renderer_renderbuffer_allocate(index_buffer, new_index_size, &pending_data.index_buffer_offset)) {
-                    KERROR(
-                        "sui_label_control_render_frame_prepare failed to allocate from the renderer's index buffer: size=%u, offset=%u",
-                        new_index_size,
-                        pending_data.index_buffer_offset);
-                    typed_data->quad_count = 0; // Keep it from drawing.
-                    goto sui_label_frame_prepare_cleanup;
-                }
-                new_index_offset = pending_data.index_buffer_offset;
-            }
-
-            // Load up the data, if there is data to load.
-            if (pending_data.vertex_buffer_data) {
-                if (!renderer_renderbuffer_load_range(vertex_buffer, new_vertex_offset, new_vertex_size, pending_data.vertex_buffer_data, true)) {
-                    KERROR("sui_label_control_render_frame_prepare failed to load data into vertex buffer range: size=%u, offset=%u", new_vertex_size, new_vertex_offset);
-                }
-            }
-            if (pending_data.index_buffer_data) {
-                if (!renderer_renderbuffer_load_range(index_buffer, new_index_offset, new_index_size, pending_data.index_buffer_data, true)) {
-                    KERROR("sui_label_control_render_frame_prepare failed to load data into index buffer range: size=%u, offset=%u", new_index_size, new_index_offset);
-                }
-            }
-
-            if (needs_realloc) {
-                // Release the old vertex/index data from the buffers and update the sizes/offsets.
-                if (old_vertex_offset != INVALID_ID_U64 && old_vertex_size != INVALID_ID_U64) {
-                    if (!renderer_renderbuffer_free(vertex_buffer, old_vertex_size, old_vertex_offset)) {
-                        KERROR("Failed to free from renderer vertex buffer: size=%u, offset=%u", old_vertex_size, old_vertex_offset);
-                    }
-                }
-                if (old_index_offset != INVALID_ID_U64 && old_index_size != INVALID_ID_U64) {
-                    if (!renderer_renderbuffer_free(index_buffer, old_index_size, old_index_offset)) {
-                        KERROR("Failed to free from renderer index buffer: size=%u, offset=%u", old_index_size, old_index_offset);
-                    }
-                }
-
-                typed_data->vertex_buffer_offset = new_vertex_offset;
+            if (!renderer_renderbuffer_upload(vertex_buffer, old_vertex_size, new_vertex_size, &typed_data->vertex_buffer_offset, pending_data.vertex_buffer_data)) {
+                KERROR("Failed to upload vertex data for sui_label. See logs for details");
+                return;
+            } else {
                 typed_data->vertex_buffer_size = new_vertex_size;
-                typed_data->index_buffer_offset = new_index_offset;
-                typed_data->index_buffer_size = new_index_size;
             }
 
+            u64 old_index_size = typed_data->index_buffer_size;
+            u64 new_index_size = pending_data.index_buffer_size;
+            if (!renderer_renderbuffer_upload(index_buffer, old_index_size, new_index_size, &typed_data->index_buffer_offset, pending_data.index_buffer_data)) {
+                KERROR("Failed to upload index data for sui_label. See logs for details");
+                return;
+            } else {
+                typed_data->index_buffer_offset = new_index_size;
+            }
+
+            // // Use the new offsets unless a realloc is needed.
+            // u64 new_vertex_offset = old_vertex_offset;
+            // u64 new_index_offset = old_index_offset;
+
+            // // A reallocation is required if the text is longer than it previously was.
+            // b8 needs_realloc = pending_data.quad_count > typed_data->max_quad_count;
+            // if (needs_realloc) {
+            //     if (!renderer_renderbuffer_allocate(vertex_buffer, new_vertex_size, &pending_data.vertex_buffer_offset)) {
+            //         KERROR(
+            //             "sui_label_control_render_frame_prepare failed to allocate from the renderer's vertex buffer: size=%u, offset=%u",
+            //             new_vertex_size,
+            //             pending_data.vertex_buffer_offset);
+            //         typed_data->quad_count = 0; // Keep it from drawing.
+            //         goto sui_label_frame_prepare_cleanup;
+            //     }
+            //     new_vertex_offset = pending_data.vertex_buffer_offset;
+
+            //     if (!renderer_renderbuffer_allocate(index_buffer, new_index_size, &pending_data.index_buffer_offset)) {
+            //         KERROR(
+            //             "sui_label_control_render_frame_prepare failed to allocate from the renderer's index buffer: size=%u, offset=%u",
+            //             new_index_size,
+            //             pending_data.index_buffer_offset);
+            //         typed_data->quad_count = 0; // Keep it from drawing.
+            //         goto sui_label_frame_prepare_cleanup;
+            //     }
+            //     new_index_offset = pending_data.index_buffer_offset;
+            // }
+
+            // // Load up the data, if there is data to load.
+            // if (pending_data.vertex_buffer_data) {
+            //     if (!renderer_renderbuffer_load_range(vertex_buffer, new_vertex_offset, new_vertex_size, pending_data.vertex_buffer_data, true)) {
+            //         KERROR("sui_label_control_render_frame_prepare failed to load data into vertex buffer range: size=%u, offset=%u", new_vertex_size, new_vertex_offset);
+            //     }
+            // }
+            // if (pending_data.index_buffer_data) {
+            //     if (!renderer_renderbuffer_load_range(index_buffer, new_index_offset, new_index_size, pending_data.index_buffer_data, true)) {
+            //         KERROR("sui_label_control_render_frame_prepare failed to load data into index buffer range: size=%u, offset=%u", new_index_size, new_index_offset);
+            //     }
+            // }
+
+            // if (needs_realloc) {
+            //     // Release the old vertex/index data from the buffers and update the sizes/offsets.
+            //     if (old_vertex_offset != INVALID_ID_U64 && old_vertex_size != INVALID_ID_U64) {
+            //         if (!renderer_renderbuffer_free(vertex_buffer, old_vertex_size, old_vertex_offset)) {
+            //             KERROR("Failed to free from renderer vertex buffer: size=%u, offset=%u", old_vertex_size, old_vertex_offset);
+            //         }
+            //     }
+            //     if (old_index_offset != INVALID_ID_U64 && old_index_size != INVALID_ID_U64) {
+            //         if (!renderer_renderbuffer_free(index_buffer, old_index_size, old_index_offset)) {
+            //             KERROR("Failed to free from renderer index buffer: size=%u, offset=%u", old_index_size, old_index_offset);
+            //         }
+            //     }
+
+            //     typed_data->vertex_buffer_offset = new_vertex_offset;
+            //     typed_data->vertex_buffer_size = new_vertex_size;
+            //     typed_data->index_buffer_offset = new_index_offset;
+            //     typed_data->index_buffer_size = new_index_size;
+            // }
+
+            // Sync the quad count.
             typed_data->quad_count = pending_data.quad_count;
 
             // Update the max length if the string is now longer.
@@ -496,14 +509,6 @@ static void sui_label_control_render_frame_prepare(standard_ui_state* state, str
 
             // No longer dirty.
             typed_data->is_dirty = false;
-
-        sui_label_frame_prepare_cleanup:
-            if (pending_data.vertex_buffer_data) {
-                kfree(pending_data.vertex_buffer_data, pending_data.vertex_buffer_size, MEMORY_TAG_ARRAY);
-            }
-            if (pending_data.index_buffer_data) {
-                kfree(pending_data.index_buffer_data, pending_data.index_buffer_size, MEMORY_TAG_ARRAY);
-            }
         }
     }
 }

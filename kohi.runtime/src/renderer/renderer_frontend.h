@@ -696,7 +696,8 @@ KAPI b8 renderer_renderbuffer_resize(renderbuffer* buffer, u64 new_total_size);
 
 /**
  * @brief Attempts to allocate memory from the given buffer. Should only be used on
- * buffers that were created with use_freelist = true.
+ * buffers that were created using freelist tracking.
+ * NOTE: You should more than likely be using renderer_renderbuffer_upload instead.
  *
  * @param buffer A pointer to the buffer to be allocated from.
  * @param size The size in bytes to allocate.
@@ -704,6 +705,20 @@ KAPI b8 renderer_renderbuffer_resize(renderbuffer* buffer, u64 new_total_size);
  * @return True on success; otherwise false.
  */
 KAPI b8 renderer_renderbuffer_allocate(renderbuffer* buffer, u64 size, u64* out_offset);
+
+/**
+ * @brief Attempts to allocate memory in the given renderbuffer and upload it to the GPU. Should only be
+ * used on buffers using freelist tracking. If re-uploading, make sure to pass old_size and the address of
+ * a variable holding the old offset to ensure it is released afterward.
+ *
+ * @param buffer A pointer to the buffer to allocate from/upload to.
+ * @param old_size If a reupload, the old data's size to be freed. Otherwise 0.
+ * @param new_size The size of the new data to be uploaded.
+ * @param offset A pointer to the offset within the buffer. For reuploads, this should be the old offset. Gets overwritten with the new offset on success.
+ * @param data A pointer to a block of memory to read to. Must be of appropriate size.
+ * @return True on success; otherwise false.
+ */
+KAPI b8 renderer_renderbuffer_upload(renderbuffer* buffer, u64 old_size, u64 new_size, u64* offset, const void* data);
 
 /**
  * @brief Frees memory from the given buffer.

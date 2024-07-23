@@ -8,6 +8,7 @@
 #include <strings/kstring.h>
 #include <systems/geometry_system.h>
 #include <systems/shader_system.h>
+#include <logger.h>
 
 static void sui_panel_control_render_frame_prepare(standard_ui_state* state, struct sui_control* self, const struct frame_data* p_frame_data);
 
@@ -148,7 +149,25 @@ static void sui_panel_control_render_frame_prepare(standard_ui_state* state, str
     if (self) {
         sui_panel_internal_data* typed_data = self->internal_data;
         if (typed_data->is_dirty) {
+
             renderer_geometry_vertex_update(typed_data->g, 0, typed_data->g->vertex_count, typed_data->g->vertices, true);
+
+            renderbuffer* vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
+            renderbuffer* index_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_INDEX);
+
+            // Always reupload vertex and index data
+            u64 vertex_size = typed_data->g->vertex_element_size * typed_data->g->vertex_count;
+            if (!renderer_renderbuffer_upload(vertex_buffer, vertex_size, vertex_size, &typed_data->g->vertex_buffer_offset, typed_data->g->vertices)) {
+                KERROR("Failed to upload vertex data for sui_panel. See logs for details");
+                return;
+            }
+
+            u64 index_size = typed_data->g->index_element_size * typed_data->g->index_count;
+            if (!renderer_renderbuffer_upload(index_buffer, index_size, index_size, &typed_data->g->index_buffer_offset, typed_data->g->indices)) {
+                KERROR("Failed to upload index data for sui_panel. See logs for details");
+                return;
+            }
+
             typed_data->is_dirty = false;
         }
     }

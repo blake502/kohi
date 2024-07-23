@@ -255,12 +255,15 @@ void nine_slice_render_frame_prepare(nine_slice* nslice, const struct frame_data
     }
 
     if (nslice->is_dirty) {
-        // Upload the new vertex data.
+
+        // Re-upload vertex data.
         renderbuffer* vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
-        u32 size = nslice->vertex_data.element_size * nslice->vertex_data.element_count;
-        if (!renderer_renderbuffer_load_range(vertex_buffer, nslice->vertex_data.buffer_offset, size, nslice->vertex_data.elements, true)) {
-            KERROR("vulkan_renderer_geometry_vertex_update failed to upload to the vertex buffer!");
+        u64 vertex_size_bytes = nslice->vertex_data.element_size * nslice->vertex_data.element_count;
+        if (!renderer_renderbuffer_upload(vertex_buffer, vertex_size_bytes, vertex_size_bytes, &nslice->vertex_data.buffer_offset, nslice->vertex_data.elements)) {
+            KERROR("Failed to re-upload data to the vertex buffer!");
         }
+
+        // NOTE: index data isn't changing so it doesn't need a re-upload
 
         nslice->is_dirty = false;
     }
@@ -312,34 +315,16 @@ b8 nine_slice_create(const char* name, vec2i size, vec2i atlas_px_size, vec2i at
         KERROR("Failed to update nine slice. See logs for more details.");
     }
 
-    // Vertex data.
+    // Upload vertex data.
     renderbuffer* vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
-    // Allocate space in the buffer.
-    if (!renderer_renderbuffer_allocate(vertex_buffer, vert_size * vert_count, &out_nine_slice->vertex_data.buffer_offset)) {
-        KERROR("Failed to allocate from the vertex buffer!");
-        return false;
+    if (!renderer_renderbuffer_upload(vertex_buffer, 0, vert_size * vert_count, &out_nine_slice->vertex_data.buffer_offset, out_nine_slice->vertex_data.elements)) {
+        KERROR("Failed to upload data to the vertex buffer!");
     }
 
-    // Load the data.
-    // NOTE: Offload was set to false.
-    if (!renderer_renderbuffer_load_range(vertex_buffer, out_nine_slice->vertex_data.buffer_offset, vert_size * vert_count, out_nine_slice->vertex_data.elements, false)) {
-        KERROR("Failed to upload nine-slice vertex data to the vertex buffer!");
-        return false;
-    }
-
-    // Index data
+    // Upload index data.
     renderbuffer* index_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_INDEX);
-    // Allocate space in the buffer.
-    if (!renderer_renderbuffer_allocate(index_buffer, idx_size * idx_count, &out_nine_slice->index_data.buffer_offset)) {
-        KERROR("Failed to allocate from the index buffer!");
-        return false;
-    }
-
-    // Load the data.
-    // NOTE: Offload was set to false.
-    if (!renderer_renderbuffer_load_range(index_buffer, out_nine_slice->index_data.buffer_offset, idx_size * idx_count, out_nine_slice->index_data.elements, false)) {
-        KERROR("Failed to upload nine-slice index data to the index buffer!");
-        return false;
+    if (!renderer_renderbuffer_upload(index_buffer, 0, idx_size * idx_count, &out_nine_slice->index_data.buffer_offset, out_nine_slice->index_data.elements)) {
+        KERROR("Failed to upload data to the vertex buffer!");
     }
 
     return true;

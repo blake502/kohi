@@ -4,6 +4,7 @@
 #include "defines.h"
 #include "math/math_types.h"
 #include "resources/resource_types.h"
+#include "threads/kmutex.h"
 
 struct shader;
 struct shader_uniform;
@@ -156,6 +157,13 @@ typedef enum renderbuffer_track_type {
     RENDERBUFFER_TRACK_TYPE_LINEAR = 2
 } renderbuffer_track_type;
 
+typedef struct renderbuffer_delete_queue_entry {
+    u64 offset;
+    /** @brief The size of this entry. Note that 0 here implies this is a free slot in the array. */
+    u64 size;
+    u8 frames_until_delete;
+} renderbuffer_delete_queue_entry;
+
 typedef struct renderbuffer {
     /** @brief The name of the buffer, used for debugging purposes. */
     char* name;
@@ -175,6 +183,15 @@ typedef struct renderbuffer {
     void* internal_data;
     /** @brief The byte offset used for linear tracking. */
     u64 offset;
+    /** @brief The current count of items in the deletion queue. */
+    u32 deletion_queue_allocated;
+    /** @brief A queue of renderbuffer entries to be cleared at some point in the future. */
+    renderbuffer_delete_queue_entry* deletion_queue;
+    /**
+     * @brief Since deletion can be called from any thread, a mutex is
+     * required when accessing the deletion queue.
+     */
+    kmutex deletion_queue_mutex;
 } renderbuffer;
 
 typedef enum renderer_config_flag_bits {

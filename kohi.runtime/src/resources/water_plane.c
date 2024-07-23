@@ -79,6 +79,9 @@ b8 water_plane_load(water_plane* plane) {
 
         renderbuffer* vertex_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_VERTEX);
         renderbuffer* index_buffer = renderer_renderbuffer_get(RENDERBUFFER_TYPE_INDEX);
+
+        // TODO: use renderer_renderbuffer_upload instead of all of this.
+        
         // Allocate space
         if (!renderer_renderbuffer_allocate(vertex_buffer, sizeof(water_plane_vertex) * 4, &plane->vertex_buffer_offset)) {
             KERROR("Failed to allocate space in vertex buffer.");

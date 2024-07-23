@@ -16,6 +16,7 @@
 #include "memory/kmemory.h"
 #include "parsers/kson_parser.h"
 #include "platform/platform.h"
+#include "threads/kmutex.h"
 #include "renderer/renderer_types.h"
 #include "renderer/renderer_utils.h"
 #include "renderer/viewport.h"
@@ -302,6 +303,34 @@ void renderer_end_debug_label(void) {
 #endif
 }
 
+static void update_renderbuffer(renderbuffer* buffer) {
+    // Process deletion queues
+    if (buffer->track_type == RENDERBUFFER_TRACK_TYPE_FREELIST) {
+        if (buffer->deletion_queue && buffer->deletion_queue_allocated) {
+            KASSERT(kmutex_lock(&buffer->deletion_queue_mutex));
+
+            // Free anything due for it this frame.
+            for (u32 i = 0; i < buffer->deletion_queue_allocated; ++i) {
+                renderbuffer_delete_queue_entry* entry = &buffer->deletion_queue[i];
+                // Only bother checking occupied entries.
+                if (entry->size) {
+                    if (entry->frames_until_delete == 0) {
+                        KASSERT(freelist_free_block(&buffer->buffer_freelist, entry->size, entry->offset));
+                        // Invalidate the entry.
+                        entry->size = 0;
+                        entry->offset = 0;
+                    } else {
+                        // Decrement the number of wait frames for this entry..
+                        entry->frames_until_delete--;
+                    }
+                }
+            }
+
+            KASSERT(kmutex_unlock(&buffer->deletion_queue_mutex));
+        }
+    }
+}
+
 b8 renderer_frame_prepare(struct renderer_system_state* state, struct frame_data* p_frame_data) {
     KASSERT(state && p_frame_data);
 
@@ -322,6 +351,12 @@ b8 renderer_frame_prepare_window_surface(struct renderer_system_state* state, st
 b8 renderer_frame_command_list_begin(struct renderer_system_state* state, struct frame_data* p_frame_data) {
     b8 result = state->backend->frame_commands_begin(state->backend, p_frame_data);
 
+    KTRACE("Begin command list");
+
+    // TODO: This will need reworking when these buffers get moved.
+    update_renderbuffer(&state->geometry_vertex_buffer);
+    update_renderbuffer(&state->geometry_index_buffer);
+
     // Reapply frame defaults if successful.
     if (result) {
         reapply_dynamic_state(state, &state->frame_default_dynamic_state);
@@ -331,6 +366,7 @@ b8 renderer_frame_command_list_begin(struct renderer_system_state* state, struct
 }
 
 b8 renderer_frame_command_list_end(struct renderer_system_state* state, struct frame_data* p_frame_data) {
+    KTRACE("End command list");
     return state->backend->frame_commands_end(state->backend, p_frame_data);
 }
 
@@ -631,6 +667,8 @@ b8 renderer_geometry_upload(geometry* g) {
         return false;
     }
     renderer_system_state* state_ptr = engine_systems_get()->renderer_system;
+
+    // TODO: use renderer_renderbuffer_upload instead of all of this.
 
     b8 is_reupload = g->generation != INVALID_ID_U16;
     u64 vertex_size = (u64)(g->vertex_element_size * g->vertex_count);
@@ -1056,12 +1094,24 @@ b8 renderer_renderbuffer_create(const char* name, renderbuffer_type type, u64 to
     }
 
     out_buffer->track_type = track_type;
+    out_buffer->deletion_queue = 0;
+    out_buffer->deletion_queue_allocated = 0;
 
     // Create the freelist, if needed.
     if (track_type == RENDERBUFFER_TRACK_TYPE_FREELIST) {
         freelist_create(total_size, &out_buffer->freelist_memory_requirement, 0, 0);
         out_buffer->freelist_block = kallocate(out_buffer->freelist_memory_requirement, MEMORY_TAG_RENDERER);
         freelist_create(total_size, &out_buffer->freelist_memory_requirement, out_buffer->freelist_block, &out_buffer->buffer_freelist);
+
+        // Setup the deletion queue.
+        out_buffer->deletion_queue_allocated = 64; // Start with a reasonable default.
+        out_buffer->deletion_queue = kallocate(sizeof(renderbuffer_delete_queue_entry) * out_buffer->deletion_queue_allocated, MEMORY_TAG_ARRAY);
+
+        // Create a mutex for the deletion queue.
+        if (!kmutex_create(&out_buffer->deletion_queue_mutex)) {
+            KERROR("Failed to create mutex for deletion queue for renderbuffer '%s'.", name);
+            return false;
+        }
     } else if (track_type == RENDERBUFFER_TRACK_TYPE_LINEAR) {
         out_buffer->offset = 0;
     }
@@ -1091,6 +1141,17 @@ void renderer_renderbuffer_destroy(renderbuffer* buffer) {
             kfree(buffer->name, length + 1, MEMORY_TAG_STRING);
             buffer->name = 0;
         }
+
+        // Destroy the deletion queue. Note that each entry does not have to be individually
+        // destroyed here, as it all gets taken out with the buffer itself.
+        if (buffer->deletion_queue && buffer->deletion_queue_allocated) {
+            kfree(buffer->deletion_queue, sizeof(renderbuffer_delete_queue_entry) * buffer->deletion_queue_allocated, MEMORY_TAG_ARRAY);
+            buffer->deletion_queue = 0;
+            buffer->deletion_queue_allocated = 0;
+        }
+
+        // Destroy the deletion mutex.
+        kmutex_destroy(&buffer->deletion_queue_mutex);
 
         // Free up the backend resources.
         state_ptr->backend->renderbuffer_internal_destroy(state_ptr->backend, buffer);
@@ -1187,13 +1248,95 @@ b8 renderer_renderbuffer_allocate(renderbuffer* buffer, u64 size, u64* out_offse
     return freelist_allocate_block(&buffer->buffer_freelist, size, out_offset);
 }
 
+b8 renderer_renderbuffer_upload(renderbuffer* buffer, u64 old_size, u64 new_size, u64* offset, const void* data) {
+    KASSERT_MSG(buffer, "renderer_renderbuffer_upload requires a valid pointer to a buffer.");
+    KASSERT_MSG(new_size, "renderer_renderbuffer_upload requires a nonzero size.");
+    KASSERT_MSG(old_size != INVALID_ID_U64, "renderer_renderbuffer_upload old_size cannot be passed as INVALID_ID_U64.");
+    KASSERT_MSG(offset, "renderer_renderbuffer_upload requires a valid pointer to offset.");
+    KASSERT_MSG(data, "renderer_renderbuffer_upload requires a valid pointer to data.");
+
+    // Keep a copy of the currently set offset.
+    u64 old_offset = *offset;
+    if (!renderer_renderbuffer_allocate(buffer, new_size, offset)) {
+        KERROR("renderer_renderbuffer_upload: Operation failed to allocate new data in buffer. See logs for details.");
+        // Ensure the old value is set back.
+        *offset = old_offset;
+        return false;
+    }
+
+    // Load data into new range.
+    if (!renderer_renderbuffer_load_range(buffer, *offset, new_size, data, true)) {
+        KERROR("renderer_renderbuffer_upload: Operation failed to load data in newly-created range. See logs for details.");
+
+        // Release the newly-allocated range.
+        if (!renderer_renderbuffer_free(buffer, new_size, *offset)) {
+            KERROR("renderer_renderbuffer_load_range: Recovery operation also failed. See logs for details");
+        }
+
+        // Set the offset back to its old value.
+        *offset = old_offset;
+        return false;
+    }
+
+    // Delete the old range, if provided. Depending on the buffer, this may not happen for a few frames.
+    if (old_size) {
+        if (!renderer_renderbuffer_free(buffer, old_size, old_offset)) {
+            // If this fails, warn about it, but continue on.
+            KWARN("renderer_renderbuffer_load_range: Operation failed to release the old data, but was otherwise successful."
+                  "Check size and offset if this happens repeatedly, as it will cause buffer memory leaks. See logs for details.");
+        }
+    }
+
+    return true;
+}
+
 b8 renderer_renderbuffer_free(renderbuffer* buffer, u64 size, u64 offset) {
     if (!buffer || !size) {
         KERROR("renderer_renderbuffer_free requires valid buffer and a nonzero size.");
         return false;
     }
 
-    if (buffer->track_type != RENDERBUFFER_TRACK_TYPE_FREELIST) {
+    if (buffer->track_type == RENDERBUFFER_TRACK_TYPE_FREELIST) {
+        // TODO: Ask the renderer backend how many "frames in flight" it potentially has, and add 1.
+        // This makes sure that all frames that would have used this data are finished with it.
+        u8 frames_until_delete = 3;
+        // For freelist types, add to the deletion queue and process the entry a few frames later.
+        // Search for an open spot.
+        KASSERT(buffer->deletion_queue);
+        KASSERT(kmutex_lock(&buffer->deletion_queue_mutex));
+        u32 found_index = INVALID_ID;
+
+        renderbuffer_delete_queue_entry* entry = 0;
+        for (u32 i = 0; i < buffer->deletion_queue_allocated; ++i) {
+            entry = &buffer->deletion_queue[i];
+            // Entries with no buffer are considered available.
+            if (!entry->size) {
+                found_index = i;
+                break;
+            }
+        }
+
+        if (found_index == INVALID_ID) {
+            // If we get here, then the deletion queue needs to be resized. Double the size of the queue.
+            u32 old_size = buffer->deletion_queue_allocated;
+            u32 new_size = old_size * 2;
+            KTRACE("Renderbuffer '%s' deletion queue is full, doubling size of queue from %u to %u", old_size, new_size);
+            buffer->deletion_queue = kreallocate(buffer->deletion_queue, old_size, new_size, MEMORY_TAG_ARRAY);
+            // New entry goes at the end, whose index happens to also be the old size.
+            entry = &buffer->deletion_queue[old_size];
+        }
+
+        KASSERT(entry);
+        // Assign the entry.
+        entry->offset = offset;
+        entry->size = size;
+        entry->frames_until_delete = frames_until_delete;
+
+        KASSERT(kmutex_unlock(&buffer->deletion_queue_mutex));
+
+        return true;
+
+    } else {
         KWARN("renderer_render_buffer_free called on a buffer not using freelists. Nothing was done.");
         return true;
     }
